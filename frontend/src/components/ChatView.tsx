@@ -1,3 +1,5 @@
+import { useRef, useState } from 'react'
+
 import type { Conversation, Message } from '../types'
 import MessageInput from './MessageInput'
 import MessageList from './MessageList'
@@ -16,6 +18,11 @@ interface ChatViewProps {
   onPin?: (text: string, messageId: string) => void
 }
 
+type QuoteInsertRequest = {
+  id: number
+  text: string
+}
+
 function ChatView({
   activeConversation,
   messages,
@@ -28,6 +35,24 @@ function ChatView({
   onQuote,
   onPin,
 }: ChatViewProps) {
+  const [quoteInsert, setQuoteInsert] = useState<QuoteInsertRequest | null>(null)
+  const quoteInsertCounterRef = useRef(0)
+
+  const handleQuote = (text: string) => {
+    const cleaned = text.trim()
+    if (!cleaned) {
+      return
+    }
+
+    quoteInsertCounterRef.current += 1
+    setQuoteInsert({
+      id: quoteInsertCounterRef.current,
+      text: cleaned,
+    })
+
+    onQuote?.(cleaned)
+  }
+
   if (!activeConversation) {
     return (
       <div className="flex h-full flex-col">
@@ -70,12 +95,12 @@ function ChatView({
           messages={messages}
           isStreaming={isStreaming}
           onQuickAction={(content) => void onSendMessage(content)}
-          onQuote={onQuote}
+          onQuote={handleQuote}
           onPin={onPin}
         />
       )}
 
-      <MessageInput isStreaming={isStreaming} onSend={onSendMessage} onStop={onStopStreaming} />
+      <MessageInput isStreaming={isStreaming} onSend={onSendMessage} onStop={onStopStreaming} quoteInsert={quoteInsert} />
     </div>
   )
 }

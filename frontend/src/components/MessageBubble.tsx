@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import type { MouseEvent as ReactMouseEvent } from 'react'
 
 import type { EntryReviewData, Message } from '../types'
 import EntryReviewCard from './EntryReviewCard'
@@ -28,6 +29,7 @@ const MAX_SELECTION_LENGTH = 500
 const SELECTION_DEBOUNCE_MS = 50
 const LONG_PRESS_MS = 300
 const MOBILE_SELECTION_DELAY_MS = 100
+const COPY_FEEDBACK_MS = 1500
 
 function escapeHtml(input: string): string {
   return input
@@ -41,11 +43,20 @@ function escapeHtml(input: string): string {
 function renderMarkdown(content: string): string {
   let text = escapeHtml(content)
 
-  text = text.replace(/```([\s\S]*?)```/g, '<pre class="my-2 overflow-x-auto rounded bg-gray-950 p-3"><code>$1</code></pre>')
-  text = text.replace(/`([^`]+?)`/g, '<code class="rounded bg-gray-950 px-1 py-0.5 text-xs">$1</code>')
+  text = text.replace(
+    /```([\s\S]*?)```/g,
+    '<div class="not-prose group relative my-2"><button type="button" data-copy-code-block="true" class="absolute right-2 top-2 z-10 inline-flex items-center rounded-md border border-gray-700 bg-gray-900/90 px-2 py-1 text-xs text-gray-200 transition hover:bg-gray-800 hover:text-white">Copy</button><pre class="overflow-x-auto rounded bg-gray-950 p-3 pt-10"><code>$1</code></pre></div>',
+  )
+  text = text.replace(
+    /`([^`]+?)`/g,
+    '<code data-inline-copy="true" class="cursor-pointer rounded border border-transparent bg-gray-950 px-1 py-0.5 text-xs transition hover:border-gray-700 hover:bg-gray-900">$1</code>',
+  )
   text = text.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
   text = text.replace(/\*([^*]+)\*/g, '<em>$1</em>')
-  text = text.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a class="text-blue-300 underline" href="$2" target="_blank" rel="noreferrer">$1</a>')
+  text = text.replace(
+    /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
+    '<a class="text-blue-300 underline" href="$2" target="_blank" rel="noreferrer">$1</a>',
+  )
 
   const lines = text.split('\n')
   const renderedLines: string[] = []
@@ -74,6 +85,19 @@ function renderMarkdown(content: string): string {
   }
 
   return renderedLines.join('<br />')
+}
+
+async function copyToClipboard(text: string): Promise<boolean> {
+  if (!text || !navigator.clipboard || typeof navigator.clipboard.writeText !== 'function') {
+    return false
+  }
+
+  try {
+    await navigator.clipboard.writeText(text)
+    return true
+  } catch {
+    return false
+  }
 }
 
 function extractJsonBlock(content: string): unknown {
@@ -188,6 +212,7 @@ function MessageBubble({ message, onQuickAction, onQuote, onPin }: MessageBubble
   const longPressTimerRef = useRef<number | null>(null)
   const longPressTriggeredRef = useRef(false)
   const lastSelectionRef = useRef('')
+  const copyTimerRefs = useRef<number[]>([])
 
   const isTouchDevice = useMemo(() => typeof window !== 'undefined' && 'ontouchstart' in window, [])
 
@@ -203,6 +228,21 @@ function MessageBubble({ message, onQuickAction, onQuote, onPin }: MessageBubble
       window.clearTimeout(longPressTimerRef.current)
       longPressTimerRef.current = null
     }
+  }, [])
+
+  const clearCopyTimers = useCallback(() => {
+    for (const timerId of copyTimerRefs.current) {
+      window.clearTimeout(timerId)
+    }
+    copyTimerRefs.current = []
+  }, [])
+
+  const queueCopyReset = useCallback((reset: () => void) => {
+    const timerId = window.setTimeout(() => {
+      reset()
+      copyTimerRefs.current = copyTimerRefs.current.filter((id) => id !== timerId)
+    }, COPY_FEEDBACK_MS)
+    copyTimerRefs.current.push(timerId)
   }, [])
 
   const dismissPopover = useCallback(() => {
@@ -330,6 +370,62 @@ function MessageBubble({ message, onQuickAction, onQuote, onPin }: MessageBubble
     window.getSelection()?.removeAllRanges()
   }, [dismissPopover, message.id, onPin, selectedText])
 
+  const handleContentClick = useCallback(
+    async (event: ReactMouseEvent<HTMLDivElement>) => {
+      const target = event.target as HTMLElement | null
+      if (!target) {
+        return
+      }
+
+      const blockButton = target.closest('button[data-copy-code-block="true"]') as HTMLButtonElement | null
+      if (blockButton) {
+        event.preventDefault()
+        const codeNode = blockButton.parentElement?.querySelector('pre code') as HTMLElement | null
+        const codeText = codeNode?.textContent ?? ''
+        const copied = await copyToClipboard(codeText)
+        if (!copied) {
+          return
+        }
+
+        const originalLabel = blockButton.dataset.originalLabel ?? blockButton.textContent ?? 'Copy'
+        blockButton.dataset.originalLabel = originalLabel
+        blockButton.textContent = '? Copied'
+        blockButton.classList.add('bg-emerald-600', 'text-white', 'border-emerald-500')
+
+        queueCopyReset(() => {
+          blockButton.textContent = blockButton.dataset.originalLabel ?? 'Copy'
+          blockButton.classList.remove('bg-emerald-600', 'text-white', 'border-emerald-500')
+        })
+        return
+      }
+
+      const inlineCode = target.closest('code[data-inline-copy="true"]') as HTMLElement | null
+      if (!inlineCode) {
+        return
+      }
+
+      event.preventDefault()
+      const inlineText = inlineCode.dataset.originalText ?? inlineCode.textContent ?? ''
+      if (!inlineCode.dataset.originalText) {
+        inlineCode.dataset.originalText = inlineText
+      }
+
+      const copied = await copyToClipboard(inlineText)
+      if (!copied) {
+        return
+      }
+
+      inlineCode.textContent = `${inlineText} ?`
+      inlineCode.classList.add('text-emerald-300', 'border-emerald-500')
+
+      queueCopyReset(() => {
+        inlineCode.textContent = inlineCode.dataset.originalText ?? inlineText
+        inlineCode.classList.remove('text-emerald-300', 'border-emerald-500')
+      })
+    },
+    [queueCopyReset],
+  )
+
   useEffect(() => {
     const handlePointerDown = (event: MouseEvent | TouchEvent) => {
       if (!showPopover) {
@@ -373,8 +469,9 @@ function MessageBubble({ message, onQuickAction, onQuote, onPin }: MessageBubble
     return () => {
       clearSelectionTimer()
       clearLongPressTimer()
+      clearCopyTimers()
     }
-  }, [clearLongPressTimer, clearSelectionTimer])
+  }, [clearCopyTimers, clearLongPressTimer, clearSelectionTimer])
 
   const popover =
     showPopover && !isUser && !reviewData
@@ -417,6 +514,7 @@ function MessageBubble({ message, onQuickAction, onQuote, onPin }: MessageBubble
             onTouchStart={handleTouchStart}
             onTouchEnd={handleTouchEnd}
             onTouchCancel={handleTouchCancel}
+            onClick={handleContentClick}
             dangerouslySetInnerHTML={{ __html: renderMarkdown(message.content) }}
           />
         ) : null}

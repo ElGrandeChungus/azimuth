@@ -1,16 +1,29 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+
+interface QuoteInsertRequest {
+  id: number
+  text: string
+}
 
 interface MessageInputProps {
   isStreaming: boolean
   onSend: (content: string) => Promise<void>
   onStop: () => void
+  quoteInsert?: QuoteInsertRequest | null
 }
 
-function MessageInput({ isStreaming, onSend, onStop }: MessageInputProps) {
+function toBlockquote(input: string): string {
+  return input
+    .split(/\r?\n/)
+    .map((line) => `> ${line}`)
+    .join('\n')
+}
+
+function MessageInput({ isStreaming, onSend, onStop, quoteInsert = null }: MessageInputProps) {
   const [value, setValue] = useState('')
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
 
-  const resizeTextarea = () => {
+  const resizeTextarea = useCallback(() => {
     const el = textareaRef.current
     if (!el) {
       return
@@ -20,11 +33,60 @@ function MessageInput({ isStreaming, onSend, onStop }: MessageInputProps) {
     const lineHeight = 24
     const maxHeight = lineHeight * 6
     el.style.height = `${Math.min(el.scrollHeight, maxHeight)}px`
-  }
+  }, [])
+
+  const insertQuoteAtCursor = useCallback((rawText: string) => {
+    const text = rawText.trim()
+    if (!text) {
+      return
+    }
+
+    const textarea = textareaRef.current
+    if (!textarea) {
+      return
+    }
+
+    const start = textarea.selectionStart ?? value.length
+    const end = textarea.selectionEnd ?? value.length
+
+    setValue((current) => {
+      const safeStart = Math.max(0, Math.min(start, current.length))
+      const safeEnd = Math.max(0, Math.min(end, current.length))
+
+      const before = current.slice(0, safeStart)
+      const after = current.slice(safeEnd)
+
+      const needsLeadingBreak = before.length > 0 && !before.endsWith('\n')
+      const leadingBreak = needsLeadingBreak ? '\n\n' : ''
+      const insertion = `${toBlockquote(text)}\n\n`
+
+      const next = `${before}${leadingBreak}${insertion}${after}`
+      const cursor = before.length + leadingBreak.length + insertion.length
+
+      requestAnimationFrame(() => {
+        const el = textareaRef.current
+        if (!el) {
+          return
+        }
+        el.focus()
+        el.setSelectionRange(cursor, cursor)
+      })
+
+      return next
+    })
+  }, [value.length])
 
   useEffect(() => {
     resizeTextarea()
-  }, [value])
+  }, [value, resizeTextarea])
+
+  useEffect(() => {
+    if (!quoteInsert || !quoteInsert.text.trim()) {
+      return
+    }
+
+    insertQuoteAtCursor(quoteInsert.text)
+  }, [insertQuoteAtCursor, quoteInsert])
 
   const submit = async () => {
     const trimmed = value.trim()
