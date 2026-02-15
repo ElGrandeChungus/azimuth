@@ -1,6 +1,6 @@
 import type { Conversation, Message, SystemPrompt } from '../types'
 
-const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8000/api'
+const API_URL = import.meta.env.VITE_API_URL ?? '/api'
 
 type ModelsResponse = Array<{ id: string; name: string }>
 
