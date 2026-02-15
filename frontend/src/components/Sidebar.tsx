@@ -96,7 +96,7 @@ function Sidebar({
                     <button
                       type="button"
                       onClick={() => onDeleteConversation(conversation.id)}
-                      className="mr-2 rounded px-2 py-1 text-xs text-red-300 opacity-100 transition hover:bg-red-950 md:opacity-0 md:group-hover:opacity-100"
+                      className="mr-2 rounded border border-red-800 px-2 py-1 text-xs text-red-300 transition hover:bg-red-950"
                     >
                       Delete
                     </button>

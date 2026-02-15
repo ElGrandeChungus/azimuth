@@ -12,6 +12,10 @@ import { useStream } from './useStream'
 
 const TEMP_ASSISTANT_ID = 'temp-assistant-stream'
 
+function isNotFoundError(err: unknown): boolean {
+  return err instanceof Error && err.message.includes('404')
+}
+
 export function useChat() {
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null)
@@ -48,21 +52,36 @@ export function useChat() {
     }
   }, [])
 
-  const loadConversationMessages = useCallback(async (conversationId: string) => {
-    setIsLoadingMessages(true)
+  const loadConversationMessages = useCallback(
+    async (conversationId: string) => {
+      setIsLoadingMessages(true)
 
-    try {
-      const detail = await getConversation(conversationId)
-      setMessages(detail.messages)
-      setError(null)
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to load conversation'
-      setError(message)
-      setMessages([])
-    } finally {
-      setIsLoadingMessages(false)
-    }
-  }, [])
+      try {
+        const detail = await getConversation(conversationId)
+        if (!detail) {
+          setMessages([])
+          setError(null)
+          await refresh()
+          return
+        }
+        setMessages(detail.messages)
+        setError(null)
+      } catch (err) {
+        if (isNotFoundError(err)) {
+          setMessages([])
+          setError(null)
+          await refresh()
+        } else {
+          const message = err instanceof Error ? err.message : 'Failed to load conversation'
+          setError(message)
+          setMessages([])
+        }
+      } finally {
+        setIsLoadingMessages(false)
+      }
+    },
+    [refresh],
+  )
 
   useEffect(() => {
     void refresh()
@@ -206,14 +225,30 @@ export function useChat() {
         ),
       )
 
-      const [conversationList, detail] = await Promise.all([
-        getConversations(),
-        getConversation(targetConversationId),
-      ])
-      setConversations(conversationList)
-      setMessages(detail.messages)
+      try {
+        const [conversationList, detail] = await Promise.all([
+          getConversations(),
+          getConversation(targetConversationId),
+        ])
+        setConversations(conversationList)
+        if (!detail) {
+          setMessages([])
+          setError(null)
+          return
+        }
+        setMessages(detail.messages)
+      } catch (err) {
+        if (isNotFoundError(err)) {
+          await refresh()
+          setMessages([])
+          setError(null)
+        } else {
+          const message = err instanceof Error ? err.message : 'Failed to refresh conversation after send'
+          setError(message)
+        }
+      }
     },
-    [activeConversationId, createConversation, isStreaming, stream],
+    [activeConversationId, createConversation, isStreaming, refresh, stream],
   )
 
   return {
@@ -234,3 +269,5 @@ export function useChat() {
     refresh,
   }
 }
+
+

@@ -12,7 +12,7 @@ const API_URL = import.meta.env.VITE_API_URL ?? '/api'
 
 type ModelsResponse = Array<{ id: string; name: string }>
 
-type ConversationDetailResponse = {
+export type ConversationDetailResponse = {
   conversation: Conversation
   messages: Message[]
 }
@@ -35,6 +35,16 @@ type LoreEntryCreatePayload = {
   parent_slug?: string
 }
 
+class ApiError extends Error {
+  status: number
+
+  constructor(status: number, message: string) {
+    super(message)
+    this.status = status
+    this.name = 'ApiError'
+  }
+}
+
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_URL}${path}`, {
     headers: {
@@ -48,7 +58,7 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const bodyText = await response.text()
 
   if (!response.ok) {
-    throw new Error(bodyText || `Request failed with status ${response.status}`)
+    throw new ApiError(response.status, bodyText || `Request failed with status ${response.status}`)
   }
 
   if (response.status === 204) {
@@ -86,14 +96,28 @@ export async function createConversation(
   })
 }
 
-export async function getConversation(id: string): Promise<ConversationDetailResponse> {
-  return apiFetch<ConversationDetailResponse>(`/conversations/${id}`)
+export async function getConversation(id: string): Promise<ConversationDetailResponse | null> {
+  try {
+    return await apiFetch<ConversationDetailResponse>(`/conversations/${id}`)
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 404) {
+      return null
+    }
+    throw err
+  }
 }
 
 export async function deleteConversation(id: string): Promise<void> {
-  await apiFetch<void>(`/conversations/${id}`, {
-    method: 'DELETE',
-  })
+  try {
+    await apiFetch<void>(`/conversations/${id}`, {
+      method: 'DELETE',
+    })
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 404) {
+      return
+    }
+    throw err
+  }
 }
 
 export async function updateConversation(
@@ -122,7 +146,7 @@ export async function sendMessage(
 
   if (!response.ok) {
     const text = await response.text()
-    throw new Error(text || `Request failed with status ${response.status}`)
+    throw new ApiError(response.status, text || `Request failed with status ${response.status}`)
   }
 
   return response
