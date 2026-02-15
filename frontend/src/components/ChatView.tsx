@@ -62,7 +62,7 @@ function ChatView({
       {isLoadingMessages ? (
         <div className="flex flex-1 items-center justify-center text-sm text-gray-400">Loading messages...</div>
       ) : (
-        <MessageList messages={messages} isStreaming={isStreaming} />
+        <MessageList messages={messages} isStreaming={isStreaming} onQuickAction={(content) => void onSendMessage(content)} />
       )}
 
       <MessageInput isStreaming={isStreaming} onSend={onSendMessage} onStop={onStopStreaming} />

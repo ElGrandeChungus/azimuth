@@ -8,6 +8,7 @@ interface SidebarProps {
   onNewConversation: () => void
   onDeleteConversation: (conversationId: string) => void
   onOpenSettings: () => void
+  onOpenLoreBrowser: () => void
 }
 
 function formatRelativeTime(timestamp: string): string {
@@ -39,6 +40,7 @@ function Sidebar({
   onNewConversation,
   onDeleteConversation,
   onOpenSettings,
+  onOpenLoreBrowser,
 }: SidebarProps) {
   return (
     <aside className="flex h-full w-full flex-col border-r border-gray-800 bg-gray-900">
@@ -49,6 +51,13 @@ function Sidebar({
           className="w-full rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-500"
         >
           New Chat
+        </button>
+        <button
+          type="button"
+          onClick={onOpenLoreBrowser}
+          className="w-full rounded-md border border-gray-700 px-4 py-2 text-sm text-gray-200 transition hover:bg-gray-800"
+        >
+          Lore Browser
         </button>
         <button
           type="button"

@@ -9,6 +9,7 @@ from fastmcp import FastMCP
 
 from app.database import get_db, init_db_sync
 from app.schemas import ENTRY_SCHEMAS, default_metadata_for_type, validate_entry_taxonomy
+from app.search import find_related_payload, search_entries_payload, validate_references_payload
 
 mcp = FastMCP('Lore Map')
 
@@ -16,10 +17,6 @@ mcp = FastMCP('Lore Map')
 def _slugify(name: str) -> str:
     slug = re.sub(r'[^a-z0-9]+', '-', name.lower()).strip('-')
     return slug or 'entry'
-
-
-def _tokenize(text: str) -> list[str]:
-    return [t for t in re.findall(r'[a-zA-Z0-9]{3,}', text.lower()) if t not in {'with', 'from', 'that', 'this', 'have', 'will', 'into'}]
 
 
 def _first_sentence(text: str, max_len: int = 220) -> str:
@@ -215,202 +212,12 @@ async def _get_schema_payload(type: str) -> dict[str, Any]:
     }
 
 
-async def _search_entries_payload(query: str, type: str | None = None, limit: int = 10) -> dict[str, Any]:
-    query = query.strip()
-    if not query:
-        return {'results': []}
-
-    safe_limit = max(1, min(int(limit), 50))
-    conditions = ['entries_fts MATCH ?']
-    params: list[Any] = [query]
-
-    if type:
-        conditions.append('e.type = ?')
-        params.append(type)
-
-    where_clause = ' AND '.join(conditions)
-    params.append(safe_limit)
-
-    async with get_db() as conn:
-        cursor = await conn.execute(
-            f'''
-            SELECT e.slug, e.name, e.type, e.category, e.status, e.summary,
-                   bm25(entries_fts) AS bm25_score
-            FROM entries_fts
-            JOIN entries e ON e.rowid = entries_fts.rowid
-            WHERE {where_clause}
-            ORDER BY bm25_score ASC
-            LIMIT ?
-            ''',
-            tuple(params),
-        )
-        rows = await cursor.fetchall()
-
-    results: list[dict[str, Any]] = []
-    for row in rows:
-        bm25_score = float(row['bm25_score'])
-        relevance = round(1.0 / (1.0 + max(0.0, bm25_score)), 4)
-        results.append(
-            {
-                'slug': row['slug'],
-                'name': row['name'],
-                'type': row['type'],
-                'category': row['category'],
-                'status': row['status'],
-                'summary': row['summary'],
-                'relevance': relevance,
-            }
-        )
-
-    return {'results': results}
-
-
-async def _find_related_payload(slug: str, limit: int = 5) -> dict[str, Any]:
-    base = await _load_entry(slug)
-    if base is None:
-        raise ValueError(f'Entry not found: {slug}')
-
-    safe_limit = max(1, min(int(limit), 25))
-    related_map: dict[str, dict[str, Any]] = {}
-
-    async with get_db() as conn:
-        direct_out_cursor = await conn.execute(
-            '''
-            SELECT e.slug, e.name, e.type, e.category, e.status, e.summary
-            FROM "references" r
-            JOIN entries e ON e.slug = r.target_slug
-            WHERE r.source_slug = ?
-            ''',
-            (slug,),
-        )
-        for row in await direct_out_cursor.fetchall():
-            _merge_related(related_map, dict(row), 1.0, 'direct_reference')
-
-        direct_in_cursor = await conn.execute(
-            '''
-            SELECT e.slug, e.name, e.type, e.category, e.status, e.summary
-            FROM "references" r
-            JOIN entries e ON e.slug = r.source_slug
-            WHERE r.target_slug = ?
-            ''',
-            (slug,),
-        )
-        for row in await direct_in_cursor.fetchall():
-            _merge_related(related_map, dict(row), 0.95, 'referenced_by')
-
-        parent_slug = base.get('parent_slug')
-        if parent_slug:
-            same_parent_cursor = await conn.execute(
-                '''
-                SELECT slug, name, type, category, status, summary
-                FROM entries
-                WHERE parent_slug = ? AND slug != ?
-                LIMIT 30
-                ''',
-                (parent_slug, slug),
-            )
-            for row in await same_parent_cursor.fetchall():
-                _merge_related(related_map, dict(row), 0.72, 'shared_parent')
-
-        shared_ref_cursor = await conn.execute(
-            '''
-            SELECT DISTINCT e.slug, e.name, e.type, e.category, e.status, e.summary
-            FROM "references" r
-            JOIN entries e ON e.slug = r.source_slug
-            WHERE r.target_slug IN (
-                SELECT target_slug FROM "references" WHERE source_slug = ?
-            )
-            AND r.source_slug != ?
-            LIMIT 30
-            ''',
-            (slug, slug),
-        )
-        for row in await shared_ref_cursor.fetchall():
-            _merge_related(related_map, dict(row), 0.63, 'shared_reference')
-
-    query_terms = _tokenize(f"{base.get('name', '')} {base.get('summary') or ''}")
-    if query_terms:
-        match_query = ' OR '.join(dict.fromkeys(query_terms[:8]))
-        try:
-            fts_results = await _search_entries_payload(match_query, limit=20)
-            for row in fts_results['results']:
-                if row['slug'] != slug:
-                    _merge_related(related_map, row, max(0.35, float(row['relevance']) * 0.55), 'content_similarity')
-        except Exception:
-            pass
-
-    filtered = [v for v in related_map.values() if v['slug'] != slug]
-    filtered.sort(key=lambda item: (-float(item['score']), item['name'].lower()))
-    return {'related': filtered[:safe_limit]}
-
-
-async def _validate_references_payload(slug: str | None = None) -> dict[str, Any]:
-    conditions = ''
-    params: tuple[Any, ...] = ()
-    if slug:
-        conditions = 'WHERE r.source_slug = ? OR r.target_slug = ?'
-        params = (slug, slug)
-
-    async with get_db() as conn:
-        refs_cursor = await conn.execute(
-            f'''
-            SELECT r.source_slug, r.target_slug, r.target_type, r.relationship,
-                   s.slug AS source_exists, t.slug AS target_exists
-            FROM "references" r
-            LEFT JOIN entries s ON s.slug = r.source_slug
-            LEFT JOIN entries t ON t.slug = r.target_slug
-            {conditions}
-            ORDER BY r.source_slug, r.target_slug
-            ''',
-            params,
-        )
-        rows = await refs_cursor.fetchall()
-
-        orphan_filter = ''
-        orphan_params: tuple[Any, ...] = ()
-        if slug:
-            orphan_filter = 'WHERE e.slug = ?'
-            orphan_params = (slug,)
-
-        orphan_cursor = await conn.execute(
-            f'''
-            SELECT e.slug, e.name, e.type
-            FROM entries e
-            LEFT JOIN "references" r ON r.target_slug = e.slug
-            {orphan_filter}
-            GROUP BY e.slug, e.name, e.type
-            HAVING COUNT(r.id) = 0
-            ORDER BY e.name
-            ''',
-            orphan_params,
-        )
-        orphaned_entries = [dict(r) for r in await orphan_cursor.fetchall()]
-
-    valid: list[dict[str, Any]] = []
-    broken: list[dict[str, Any]] = []
-
-    for row in rows:
-        ref = {
-            'source_slug': row['source_slug'],
-            'target_slug': row['target_slug'],
-            'target_type': row['target_type'],
-            'relationship': row['relationship'],
-        }
-        if row['source_exists'] and row['target_exists']:
-            valid.append(ref)
-        else:
-            broken.append(ref)
-
-    return {'valid': valid, 'broken': broken, 'orphaned': orphaned_entries}
-
-
 async def _extract_filled_fields(entry_type: str, user_input: str, schema: dict[str, Any]) -> dict[str, Any]:
     text = user_input.strip()
     text_lower = text.lower()
 
     filled: dict[str, Any] = {'type': entry_type}
 
-    # Name extraction: explicit quoted name, then natural-language patterns.
     quoted_match = re.search(r'"([^"]{2,80})"|\'([^\']{2,80})\'', text)
     if quoted_match:
         filled['name'] = (quoted_match.group(1) or quoted_match.group(2) or '').strip()
@@ -445,21 +252,20 @@ async def _extract_filled_fields(entry_type: str, user_input: str, schema: dict[
     metadata_template = schema.get('metadata', {})
     metadata: dict[str, Any] = {}
 
-    # Seed with schema template keys we can infer from user input.
     for key in metadata_template.keys():
         if key.endswith('_slug'):
             key_root = key[:-5].replace('_', ' ')
             named_match = re.search(rf'{re.escape(key_root)}\s*(?:is|:|=)\s*([A-Za-z0-9\'\- ]{{2,80}})', text_lower)
             if named_match:
                 candidate = named_match.group(1).strip()
-                search = await _search_entries_payload(candidate, limit=1)
+                search = await search_entries_payload(candidate, limit=1)
                 if search['results']:
                     metadata[key] = search['results'][0]['slug']
 
     location_hint = re.search(r'\b(?:in|at|from|near)\s+(?:the\s+)?([A-Za-z][A-Za-z0-9\'\- ]{1,60})', text)
     if location_hint:
         candidate = location_hint.group(1).strip(' .,!?:;')
-        search = await _search_entries_payload(candidate, type='location', limit=1)
+        search = await search_entries_payload(candidate, type='location', limit=1)
         if search['results']:
             if 'location_slug' in metadata_template:
                 metadata['location_slug'] = search['results'][0]['slug']
@@ -469,7 +275,7 @@ async def _extract_filled_fields(entry_type: str, user_input: str, schema: dict[
     faction_hint = re.search(r'\b(?:for|with|aligned with|member of)\s+(?:the\s+)?([A-Za-z][A-Za-z0-9\'\- ]{1,60})', text)
     if faction_hint:
         candidate = faction_hint.group(1).strip(' .,!?:;')
-        search = await _search_entries_payload(candidate, type='faction', limit=1)
+        search = await search_entries_payload(candidate, type='faction', limit=1)
         if search['results']:
             if 'faction_slug' in metadata_template:
                 metadata['faction_slug'] = search['results'][0]['slug']
@@ -504,7 +310,6 @@ def _build_follow_up_questions(schema: dict[str, Any], missing_required: list[st
             question_key = key.replace('_', ' ').replace(' slug', '')
             questions.append(f'Does this connect to an existing {question_key}? If so, which one?')
 
-    # Keep question list concise for the conversation model.
     deduped: list[str] = []
     for question in questions:
         if question not in deduped:
@@ -559,7 +364,7 @@ async def _get_context_package_payload(
     terms = _extract_search_terms(user_input)
     for term in terms:
         try:
-            matches = await _search_entries_payload(term, limit=5)
+            matches = await search_entries_payload(term, limit=5)
         except Exception:
             continue
 
@@ -568,7 +373,7 @@ async def _get_context_package_payload(
 
     if existing_slug:
         try:
-            related_from_existing = await _find_related_payload(existing_slug, limit=8)
+            related_from_existing = await find_related_payload(existing_slug, limit=8)
             for row in related_from_existing['related']:
                 _merge_related(related_map, row, max(0.4, float(row.get('score', 0.0))), 'related_to_existing_entry')
         except ValueError:
@@ -682,7 +487,7 @@ async def get_entry(slug: str) -> dict[str, Any]:
 
 @mcp.tool()
 async def search_entries(query: str, type: str | None = None, limit: int = 10) -> dict[str, Any]:
-    return await _search_entries_payload(query=query, type=type, limit=limit)
+    return await search_entries_payload(query=query, type=type, limit=limit)
 
 
 @mcp.tool()
@@ -798,12 +603,12 @@ async def get_schema(type: str) -> dict[str, Any]:
 
 @mcp.tool()
 async def find_related(slug: str, limit: int = 5) -> dict[str, Any]:
-    return await _find_related_payload(slug=slug, limit=limit)
+    return await find_related_payload(slug=slug, limit=limit)
 
 
 @mcp.tool()
 async def validate_references(slug: str | None = None) -> dict[str, Any]:
-    return await _validate_references_payload(slug=slug)
+    return await validate_references_payload(slug=slug)
 
 
 @mcp.tool()

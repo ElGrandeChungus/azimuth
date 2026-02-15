@@ -1,6 +1,7 @@
 import { useState } from 'react'
 
 import ChatView from './components/ChatView'
+import LoreBrowser from './components/LoreBrowser'
 import SettingsPanel from './components/SettingsPanel'
 import Sidebar from './components/Sidebar'
 import { useChat } from './hooks/useChat'
@@ -24,6 +25,7 @@ function App() {
 
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
+  const [isLoreBrowserOpen, setIsLoreBrowserOpen] = useState(false)
 
   return (
     <div className="h-screen bg-gray-900 text-gray-100">
@@ -43,6 +45,10 @@ function App() {
             }}
             onDeleteConversation={(id) => {
               void deleteConversation(id)
+            }}
+            onOpenLoreBrowser={() => {
+              setIsLoreBrowserOpen(true)
+              setIsMobileSidebarOpen(false)
             }}
             onOpenSettings={() => {
               setIsSettingsOpen(true)
@@ -74,6 +80,10 @@ function App() {
                 }}
                 onDeleteConversation={(id) => {
                   void deleteConversation(id)
+                }}
+                onOpenLoreBrowser={() => {
+                  setIsLoreBrowserOpen(true)
+                  setIsMobileSidebarOpen(false)
                 }}
                 onOpenSettings={() => {
                   setIsSettingsOpen(true)
@@ -107,6 +117,7 @@ function App() {
       </div>
 
       <SettingsPanel isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
+      <LoreBrowser isOpen={isLoreBrowserOpen} onClose={() => setIsLoreBrowserOpen(false)} />
     </div>
   )
 }

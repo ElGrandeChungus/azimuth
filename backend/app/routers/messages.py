@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import json
 import uuid
 from typing import Any, AsyncGenerator
@@ -35,6 +36,8 @@ APPROVAL_KEYWORDS = {
     'lock it in',
 }
 
+logger = logging.getLogger(__name__)
+
 
 def _sse_event(payload: dict[str, str]) -> str:
     return f"data: {json.dumps(payload)}\n\n"
@@ -43,6 +46,45 @@ def _sse_event(payload: dict[str, str]) -> str:
 def _is_approval_message(message: str) -> bool:
     lowered = message.lower()
     return any(keyword in lowered for keyword in APPROVAL_KEYWORDS)
+
+
+def _draft_key(conversation_id: str) -> str:
+    return f'lore_draft:{conversation_id}'
+
+
+async def _load_lore_draft(conversation_id: str) -> dict[str, Any] | None:
+    async with get_db() as conn:
+        cursor = await conn.execute('SELECT value FROM config WHERE key = ?', (_draft_key(conversation_id),))
+        row = await cursor.fetchone()
+
+    if row is None:
+        return None
+
+    try:
+        value = json.loads(row['value'])
+    except json.JSONDecodeError:
+        return None
+
+    return value if isinstance(value, dict) else None
+
+
+async def _save_lore_draft(conversation_id: str, context_root: dict[str, Any]) -> None:
+    async with get_db() as conn:
+        await conn.execute(
+            '''
+            INSERT INTO config (key, value)
+            VALUES (?, ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value
+            ''',
+            (_draft_key(conversation_id), json.dumps(context_root, ensure_ascii=True)),
+        )
+        await conn.commit()
+
+
+async def _clear_lore_draft(conversation_id: str) -> None:
+    async with get_db() as conn:
+        await conn.execute('DELETE FROM config WHERE key = ?', (_draft_key(conversation_id),))
+        await conn.commit()
 
 
 def _extract_context_payload(augmented: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -61,6 +103,87 @@ def _extract_context_payload(augmented: dict[str, Any] | None) -> dict[str, Any]
     return parsed if isinstance(parsed, dict) else None
 
 
+def _context_to_augmented(context_root: dict[str, Any], system_append: str | None) -> dict[str, Any]:
+    return {
+        'system_append': system_append,
+        'context_block': json.dumps(context_root, ensure_ascii=True),
+    }
+
+
+def _merge_context_roots(previous: dict[str, Any] | None, current: dict[str, Any] | None) -> dict[str, Any] | None:
+    if previous is None and current is None:
+        return None
+    if previous is None:
+        return current
+    if current is None:
+        return previous
+
+    merged = dict(previous)
+    merged['entry_type'] = current.get('entry_type') or previous.get('entry_type')
+
+    prev_pkg = previous.get('context_package') if isinstance(previous.get('context_package'), dict) else {}
+    curr_pkg = current.get('context_package') if isinstance(current.get('context_package'), dict) else {}
+
+    pkg = dict(prev_pkg)
+    pkg.update(curr_pkg)
+
+    prev_filled = prev_pkg.get('filled_fields') if isinstance(prev_pkg.get('filled_fields'), dict) else {}
+    curr_filled = curr_pkg.get('filled_fields') if isinstance(curr_pkg.get('filled_fields'), dict) else {}
+    filled_fields = dict(prev_filled)
+    filled_fields.update(curr_filled)
+    pkg['filled_fields'] = filled_fields
+
+    schema = pkg.get('schema') if isinstance(pkg.get('schema'), dict) else {}
+    required = schema.get('required_fields') if isinstance(schema.get('required_fields'), list) else []
+    missing_required = [field for field in required if not str(filled_fields.get(field, '')).strip()]
+    pkg['missing_required'] = missing_required
+
+    merged_related: list[dict[str, Any]] = []
+    seen_related: set[str] = set()
+    for source in [prev_pkg.get('related_entries', []), curr_pkg.get('related_entries', [])]:
+        if not isinstance(source, list):
+            continue
+        for item in source:
+            if not isinstance(item, dict):
+                continue
+            slug = str(item.get('slug', '')).strip()
+            if not slug or slug in seen_related:
+                continue
+            seen_related.add(slug)
+            merged_related.append(item)
+    pkg['related_entries'] = merged_related[:10]
+
+    merged_refs: list[dict[str, Any]] = []
+    seen_refs: set[tuple[str, str]] = set()
+    for source in [prev_pkg.get('suggested_references', []), curr_pkg.get('suggested_references', [])]:
+        if not isinstance(source, list):
+            continue
+        for item in source:
+            if not isinstance(item, dict):
+                continue
+            key = (str(item.get('target_slug', '')).strip(), str(item.get('target_type', '')).strip())
+            if not all(key) or key in seen_refs:
+                continue
+            seen_refs.add(key)
+            merged_refs.append(item)
+    pkg['suggested_references'] = merged_refs[:8]
+
+    merged_questions: list[str] = []
+    seen_questions: set[str] = set()
+    for source in [prev_pkg.get('follow_up_questions', []), curr_pkg.get('follow_up_questions', [])]:
+        if not isinstance(source, list):
+            continue
+        for item in source:
+            question = str(item).strip()
+            if question and question not in seen_questions:
+                seen_questions.add(question)
+                merged_questions.append(question)
+    pkg['follow_up_questions'] = merged_questions[:10]
+
+    merged['context_package'] = pkg
+    return merged
+
+
 def _normalize_entry_name(value: str) -> str:
     cleaned = value.strip().strip('"\'')
     lowered = cleaned.lower()
@@ -72,8 +195,7 @@ def _normalize_entry_name(value: str) -> str:
     return cleaned.strip(' .,!?:;')
 
 
-def _build_create_entry_payload(augmented: dict[str, Any] | None) -> dict[str, Any] | None:
-    context_root = _extract_context_payload(augmented)
+def _build_create_entry_payload_from_context_root(context_root: dict[str, Any] | None) -> dict[str, Any] | None:
     if not context_root:
         return None
 
@@ -142,6 +264,23 @@ def _build_create_entry_payload(augmented: dict[str, Any] | None) -> dict[str, A
 
     return payload
 
+def _validate_create_entry_response(raw_response: Any) -> tuple[dict[str, Any] | None, str | None]:
+    if not isinstance(raw_response, dict):
+        return None, 'MCP create_entry returned a non-object response.'
+
+    if raw_response.get('error'):
+        return None, f"MCP create_entry returned error: {raw_response.get('error')}"
+
+    entry = raw_response.get('entry')
+    if not isinstance(entry, dict):
+        return None, 'MCP create_entry response is missing entry object.'
+
+    entry_id = str(entry.get('id', '')).strip()
+    entry_slug = str(entry.get('slug', '')).strip()
+    if not entry_id or not entry_slug:
+        return None, 'MCP create_entry response is missing entry.id or entry.slug.'
+
+    return entry, None
 
 async def _autotitle_conversation(conversation_id: str, first_message: str, model: str) -> None:
     try:
@@ -232,6 +371,8 @@ async def send_message(conversation_id: str, payload: SendMessageRequest):
     selected_model = conversation['model'] or settings.DEFAULT_MODEL
     history_messages = [{'role': row['role'], 'content': row['content']} for row in history_rows]
 
+    previous_root = await _load_lore_draft(conversation_id)
+
     augmented_context: dict[str, Any] | None = None
     try:
         augmented_context = await orchestrator.process_message(
@@ -242,36 +383,67 @@ async def send_message(conversation_id: str, payload: SendMessageRequest):
     except Exception:
         augmented_context = None
 
+    current_root = _extract_context_payload(augmented_context)
+    merged_root = _merge_context_roots(previous_root, current_root)
+
+    if merged_root is not None:
+        await _save_lore_draft(conversation_id, merged_root)
+
     if augmented_context and augmented_context.get('system_append'):
         system_prompt_content = f"{system_prompt_content}\n\n{augmented_context['system_append']}"
 
+    merged_augmented = (
+        _context_to_augmented(merged_root, augmented_context.get('system_append') if augmented_context else None)
+        if merged_root is not None
+        else augmented_context
+    )
+
     llm_messages = await build_messages(history_messages, system_prompt_content)
 
-    if augmented_context and augmented_context.get('context_block'):
-        llm_messages.append({'role': 'system', 'content': str(augmented_context['context_block'])})
+    if merged_augmented and merged_augmented.get('context_block'):
+        llm_messages.append({'role': 'system', 'content': str(merged_augmented['context_block'])})
 
     llm_messages.append({'role': 'user', 'content': user_content})
 
-    approval_result: dict[str, Any] | None = None
+    approval_entry: dict[str, Any] | None = None
+    approval_error_message: str | None = None
+    approval_raw_response: Any = None
+
     if _is_approval_message(user_content):
-        create_payload = _build_create_entry_payload(augmented_context)
+        create_payload = _build_create_entry_payload_from_context_root(merged_root)
         if create_payload:
             try:
-                approval_result = await loremap_client.create_entry(**create_payload)
-            except Exception:
-                approval_result = None
+                approval_raw_response = await loremap_client.create_entry(**create_payload)
+            except Exception as exc:
+                approval_error_message = 'Failed to save lore entry due to an MCP request error.'
+                logger.exception('MCP create_entry request failed for conversation %s', conversation_id)
+            else:
+                approval_entry, validation_error = _validate_create_entry_response(approval_raw_response)
+                if validation_error is not None:
+                    approval_error_message = 'Failed to save lore entry. The MCP response was invalid.'
+                    logger.error(
+                        'Invalid MCP create_entry response for conversation %s: %s | raw=%s',
+                        conversation_id,
+                        validation_error,
+                        json.dumps(approval_raw_response, ensure_ascii=True, default=str),
+                    )
+                else:
+                    await _clear_lore_draft(conversation_id)
 
     assistant_message_id = str(uuid.uuid4())
     response_parts: list[str] = []
 
     async def event_stream() -> AsyncGenerator[str, None]:
-        if approval_result is not None:
-            entry = approval_result.get('entry', {}) if isinstance(approval_result, dict) else {}
-            entry_name = str(entry.get('name', 'Entry'))
-            entry_slug = str(entry.get('slug', ''))
+        if approval_entry is not None:
+            entry_name = str(approval_entry.get('name', 'Entry'))
+            entry_slug = str(approval_entry.get('slug', ''))
             confirm_text = f"Saved lore entry '{entry_name}' ({entry_slug})."
             response_parts.append(confirm_text)
             yield _sse_event({'type': 'delta', 'content': confirm_text})
+        elif approval_error_message is not None:
+            response_parts.append(approval_error_message)
+            yield _sse_event({'type': 'error', 'message': approval_error_message})
+            yield _sse_event({'type': 'delta', 'content': approval_error_message})
         else:
             try:
                 async for delta in stream_chat(llm_messages, selected_model):
@@ -327,3 +499,11 @@ async def send_message(conversation_id: str, payload: SendMessageRequest):
             'X-Accel-Buffering': 'no',
         },
     )
+
+
+
+
+
+
+
+
