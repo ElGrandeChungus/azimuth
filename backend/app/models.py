@@ -14,7 +14,7 @@ class Conversation(BaseModel):
 class Message(BaseModel):
     id: str
     conversation_id: str
-    role: Literal["user", "assistant", "system"]
+    role: Literal['user', 'assistant', 'system']
     content: str
     model: str | None = None
     created_at: str
@@ -61,3 +61,19 @@ class UpdateSystemPromptRequest(BaseModel):
 class ModelOption(BaseModel):
     id: str
     name: str
+
+
+class PinnedContext(BaseModel):
+    id: str
+    conversation_id: str
+    source_message_id: str | None = None
+    source_role: Literal['user', 'assistant', 'system'] | None = None
+    content: str
+    token_estimate: int
+    created_at: str
+
+
+class CreatePinnedContextRequest(BaseModel):
+    content: str = Field(min_length=1)
+    source_message_id: str | None = None
+    source_role: Literal['user', 'assistant', 'system'] | None = None

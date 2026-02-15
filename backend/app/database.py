@@ -42,11 +42,26 @@ CREATE TABLE IF NOT EXISTS config (
     value TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS pinned_context (
+    id TEXT PRIMARY KEY,
+    conversation_id TEXT NOT NULL,
+    source_message_id TEXT,
+    source_role TEXT CHECK(source_role IN ('user', 'assistant', 'system')),
+    content TEXT NOT NULL,
+    token_estimate INTEGER NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
+    FOREIGN KEY (source_message_id) REFERENCES messages(id) ON DELETE SET NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_messages_conversation
     ON messages(conversation_id, created_at);
 
 CREATE INDEX IF NOT EXISTS idx_conversations_updated
     ON conversations(updated_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_pins_conversation_created
+    ON pinned_context(conversation_id, created_at DESC);
 """
 
 

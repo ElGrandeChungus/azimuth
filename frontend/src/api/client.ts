@@ -5,6 +5,7 @@ import type {
   LoreEntryListItem,
   LoreReference,
   Message,
+  PinnedContext,
   SystemPrompt,
 } from '../types'
 
@@ -127,6 +128,31 @@ export async function updateConversation(
   return apiFetch<Conversation>(`/conversations/${id}`, {
     method: 'PATCH',
     body: JSON.stringify(updates),
+  })
+}
+
+export async function getPins(conversationId: string): Promise<PinnedContext[]> {
+  return apiFetch<PinnedContext[]>(`/conversations/${conversationId}/pins`)
+}
+
+export async function createPin(
+  conversationId: string,
+  payload: {
+    content: string
+    source_message_id?: string
+    source_role?: 'user' | 'assistant' | 'system'
+  },
+): Promise<PinnedContext> {
+  return apiFetch<PinnedContext>(`/conversations/${conversationId}/pins`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
+export async function deletePin(conversationId: string, pinId: string): Promise<void> {
+  const params = new URLSearchParams({ pin_id: pinId })
+  await apiFetch<void>(`/conversations/${conversationId}/pins?${params.toString()}`, {
+    method: 'DELETE',
   })
 }
 

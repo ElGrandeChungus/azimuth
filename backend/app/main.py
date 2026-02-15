@@ -8,6 +8,7 @@ from app.database import init_db
 from app.routers.conversations import router as conversations_router
 from app.routers.lore import router as lore_router
 from app.routers.messages import router as messages_router
+from app.routers.pins import router as pins_router
 from app.routers.settings import router as settings_router
 
 
@@ -31,6 +32,7 @@ app.include_router(conversations_router)
 app.include_router(messages_router)
 app.include_router(settings_router)
 app.include_router(lore_router)
+app.include_router(pins_router)
 
 
 @app.get('/api/health')

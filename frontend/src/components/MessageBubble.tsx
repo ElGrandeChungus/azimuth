@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { MouseEvent as ReactMouseEvent } from 'react'
 
-import type { EntryReviewData, Message } from '../types'
+import type { EntryReviewData, Message, PinnedContext } from '../types'
 import EntryReviewCard from './EntryReviewCard'
 import SelectionPopover from './SelectionPopover'
 
@@ -11,6 +11,8 @@ interface MessageBubbleProps {
   onQuickAction?: (content: string) => void
   onQuote?: (selectedText: string) => void
   onPin?: (selectedText: string, messageId: string) => void
+  pinnedItems?: PinnedContext[]
+  onUnpinPin?: (pinId: string) => void
 }
 
 type PopoverPosition = {
@@ -197,7 +199,15 @@ function extractEntryReview(content: string): EntryReviewData | null {
   return parseReviewFromText(content)
 }
 
-function MessageBubble({ message, onQuickAction, onQuote, onPin }: MessageBubbleProps) {
+function truncatePinContent(input: string, max = 90): string {
+  const normalized = input.replace(/\s+/g, ' ').trim()
+  if (normalized.length <= max) {
+    return normalized
+  }
+  return `${normalized.slice(0, max - 1)}?`
+}
+
+function MessageBubble({ message, onQuickAction, onQuote, onPin, pinnedItems = [], onUnpinPin }: MessageBubbleProps) {
   const isUser = message.role === 'user'
   const reviewData = !isUser ? extractEntryReview(message.content) : null
 
@@ -389,7 +399,7 @@ function MessageBubble({ message, onQuickAction, onQuote, onPin }: MessageBubble
 
         const originalLabel = blockButton.dataset.originalLabel ?? blockButton.textContent ?? 'Copy'
         blockButton.dataset.originalLabel = originalLabel
-        blockButton.textContent = '? Copied'
+        blockButton.textContent = '\u2713 Copied'
         blockButton.classList.add('bg-emerald-600', 'text-white', 'border-emerald-500')
 
         queueCopyReset(() => {
@@ -415,7 +425,7 @@ function MessageBubble({ message, onQuickAction, onQuote, onPin }: MessageBubble
         return
       }
 
-      inlineCode.textContent = `${inlineText} ?`
+      inlineCode.textContent = `${inlineText} \u2713`
       inlineCode.classList.add('text-emerald-300', 'border-emerald-500')
 
       queueCopyReset(() => {
@@ -517,6 +527,29 @@ function MessageBubble({ message, onQuickAction, onQuote, onPin }: MessageBubble
             onClick={handleContentClick}
             dangerouslySetInnerHTML={{ __html: renderMarkdown(message.content) }}
           />
+        ) : null}
+
+
+        {!isUser && pinnedItems.length > 0 ? (
+          <div className="mt-2 rounded border border-amber-800/60 bg-amber-950/30 px-2 py-1.5 text-xs text-amber-100">
+            <div className="mb-1 flex items-center justify-between">
+              <p className="font-medium">Pinned from this message ({pinnedItems.length})</p>
+            </div>
+            <div className="space-y-1">
+              {pinnedItems.map((pin) => (
+                <div key={pin.id} className="flex items-start justify-between gap-2 rounded border border-amber-900/60 bg-amber-950/40 px-2 py-1">
+                  <p className="text-xs text-amber-100">{truncatePinContent(pin.content)}</p>
+                  <button
+                    type="button"
+                    onClick={() => onUnpinPin?.(pin.id)}
+                    className="shrink-0 rounded border border-amber-800/60 px-1.5 py-0.5 text-[11px] text-amber-100 transition hover:border-red-700 hover:bg-red-950 hover:text-red-200"
+                  >
+                    Unpin
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
         ) : null}
 
         {!isUser && message.model ? <p className="mt-2 text-xs text-gray-400">{message.model}</p> : null}

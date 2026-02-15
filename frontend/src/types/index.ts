@@ -15,6 +15,16 @@ export interface Message {
   created_at: string
 }
 
+export interface PinnedContext {
+  id: string
+  conversation_id: string
+  source_message_id?: string | null
+  source_role?: 'user' | 'assistant' | 'system' | null
+  content: string
+  token_estimate: number
+  created_at: string
+}
+
 export interface SystemPrompt {
   id: string
   name: string
