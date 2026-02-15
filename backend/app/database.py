@@ -88,7 +88,7 @@ async def init_db() -> None:
 
         await conn.execute(
             "INSERT OR IGNORE INTO config (key, value) VALUES (?, ?)",
-            ("default_model", '"anthropic/claude-sonnet-4-20250514"'),
+            ("default_model", '"anthropic/claude-sonnet-4.5"'),
         )
         await conn.execute(
             "INSERT OR IGNORE INTO config (key, value) VALUES (?, ?)",

@@ -49,7 +49,7 @@ def get_settings() -> Settings:
         OPENROUTER_API_KEY=api_key,
         OPENROUTER_BASE_URL=os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1").strip(),
         DATABASE_PATH=os.getenv("DATABASE_PATH", "data/azimuth.db").strip(),
-        DEFAULT_MODEL=os.getenv("DEFAULT_MODEL", "anthropic/claude-sonnet-4-20250514").strip(),
+        DEFAULT_MODEL=os.getenv("DEFAULT_MODEL", "anthropic/claude-sonnet-4.5").strip(),
         CORS_ORIGINS=_parse_cors_origins(os.getenv("CORS_ORIGINS")),
     )
 
