@@ -1,0 +1,21 @@
+version: '3.8'
+
+services:
+  backend:
+    build: ./backend
+    container_name: nexus-backend
+    env_file: .env
+    volumes:
+      - ./backend/data:/app/data
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    container_name: nexus-frontend
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    restart: unless-stopped
