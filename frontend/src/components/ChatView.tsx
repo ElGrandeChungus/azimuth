@@ -12,6 +12,8 @@ interface ChatViewProps {
   onStopStreaming: () => void
   onChangeModel: (model: string) => void
   onOpenSidebar: () => void
+  onQuote?: (text: string) => void
+  onPin?: (text: string, messageId: string) => void
 }
 
 function ChatView({
@@ -23,6 +25,8 @@ function ChatView({
   onStopStreaming,
   onChangeModel,
   onOpenSidebar,
+  onQuote,
+  onPin,
 }: ChatViewProps) {
   if (!activeConversation) {
     return (
@@ -62,7 +66,13 @@ function ChatView({
       {isLoadingMessages ? (
         <div className="flex flex-1 items-center justify-center text-sm text-gray-400">Loading messages...</div>
       ) : (
-        <MessageList messages={messages} isStreaming={isStreaming} onQuickAction={(content) => void onSendMessage(content)} />
+        <MessageList
+          messages={messages}
+          isStreaming={isStreaming}
+          onQuickAction={(content) => void onSendMessage(content)}
+          onQuote={onQuote}
+          onPin={onPin}
+        />
       )}
 
       <MessageInput isStreaming={isStreaming} onSend={onSendMessage} onStop={onStopStreaming} />

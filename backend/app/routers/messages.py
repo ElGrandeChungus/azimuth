@@ -7,8 +7,8 @@ from typing import Any, AsyncGenerator
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 
-from app.config import settings
 from app.database import get_db
+from app.services.config_store import get_default_model
 from app.models import SendMessageRequest
 from app.services.ai import generate_title, stream_chat
 from app.services.mcp_client import LoreMapClient
@@ -368,7 +368,14 @@ async def send_message(conversation_id: str, payload: SendMessageRequest):
             if default_prompt_row is not None:
                 system_prompt_content = default_prompt_row['content']
 
-    selected_model = conversation['model'] or settings.DEFAULT_MODEL
+        selected_model = str(conversation['model'] or '').strip()
+        if not selected_model:
+            selected_model = await get_default_model(conn=conn)
+            await conn.execute(
+                "UPDATE conversations SET model = ? WHERE id = ? AND (model IS NULL OR model = '')",
+                (selected_model, conversation_id),
+            )
+            await conn.commit()
     history_messages = [{'role': row['role'], 'content': row['content']} for row in history_rows]
 
     previous_root = await _load_lore_draft(conversation_id)
@@ -499,6 +506,7 @@ async def send_message(conversation_id: str, payload: SendMessageRequest):
             'X-Accel-Buffering': 'no',
         },
     )
+
 
 
 

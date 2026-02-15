@@ -7,9 +7,11 @@ interface MessageListProps {
   messages: Message[]
   isStreaming: boolean
   onQuickAction?: (content: string) => void
+  onQuote?: (text: string) => void
+  onPin?: (text: string, messageId: string) => void
 }
 
-function MessageList({ messages, isStreaming, onQuickAction }: MessageListProps) {
+function MessageList({ messages, isStreaming, onQuickAction, onQuote, onPin }: MessageListProps) {
   const bottomRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
@@ -20,7 +22,7 @@ function MessageList({ messages, isStreaming, onQuickAction }: MessageListProps)
     <div className="flex-1 overflow-y-auto p-4">
       <div className="mx-auto flex w-full max-w-3xl flex-col gap-3">
         {messages.map((message) => (
-          <MessageBubble key={message.id} message={message} onQuickAction={onQuickAction} />
+          <MessageBubble key={message.id} message={message} onQuickAction={onQuickAction} onQuote={onQuote} onPin={onPin} />
         ))}
         <div ref={bottomRef} />
       </div>

@@ -2,6 +2,7 @@ import uuid
 
 from fastapi import APIRouter, HTTPException, Response, status
 
+from app.database import get_db
 from app.models import (
     Conversation,
     ConversationDetail,
@@ -9,7 +10,7 @@ from app.models import (
     Message,
     UpdateConversationRequest,
 )
-from app.database import get_db
+from app.services.config_store import get_default_model
 
 router = APIRouter(prefix="/api/conversations", tags=["conversations"])
 
@@ -43,6 +44,10 @@ async def create_conversation(payload: CreateConversationRequest) -> Conversatio
     conversation_id = str(uuid.uuid4())
 
     async with get_db() as conn:
+        conversation_model = (payload.model or "").strip()
+        if not conversation_model:
+            conversation_model = await get_default_model(conn=conn)
+
         await conn.execute(
             """
             INSERT INTO conversations (id, title, model, system_prompt_id)
@@ -51,7 +56,7 @@ async def create_conversation(payload: CreateConversationRequest) -> Conversatio
             (
                 conversation_id,
                 "New Conversation",
-                payload.model or "",
+                conversation_model,
                 payload.system_prompt_id,
             ),
         )

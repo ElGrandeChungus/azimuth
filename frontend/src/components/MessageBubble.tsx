@@ -1,10 +1,33 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
+
 import type { EntryReviewData, Message } from '../types'
 import EntryReviewCard from './EntryReviewCard'
+import SelectionPopover from './SelectionPopover'
 
 interface MessageBubbleProps {
   message: Message
   onQuickAction?: (content: string) => void
+  onQuote?: (selectedText: string) => void
+  onPin?: (selectedText: string, messageId: string) => void
 }
+
+type PopoverPosition = {
+  x: number
+  y: number
+  bottom: number
+}
+
+type SelectionPayload = {
+  text: string
+  rect: DOMRect
+}
+
+const MIN_SELECTION_LENGTH = 3
+const MAX_SELECTION_LENGTH = 500
+const SELECTION_DEBOUNCE_MS = 50
+const LONG_PRESS_MS = 300
+const MOBILE_SELECTION_DELAY_MS = 100
 
 function escapeHtml(input: string): string {
   return input
@@ -93,7 +116,10 @@ function parseReviewFromJson(content: string): EntryReviewData | null {
 
   const referencesRaw = root.references
   const references = Array.isArray(referencesRaw)
-    ? referencesRaw.filter((item) => item && typeof item === 'object').map((item) => item as Record<string, unknown>).map((item) => ({
+    ? referencesRaw
+      .filter((item) => item && typeof item === 'object')
+      .map((item) => item as Record<string, unknown>)
+      .map((item) => ({
         target_slug: String(item.target_slug ?? item.slug ?? ''),
         target_type: String(item.target_type ?? item.type ?? 'unknown'),
         relationship: item.relationship ? String(item.relationship) : undefined,
@@ -147,16 +173,230 @@ function extractEntryReview(content: string): EntryReviewData | null {
   return parseReviewFromText(content)
 }
 
-function MessageBubble({ message, onQuickAction }: MessageBubbleProps) {
+function MessageBubble({ message, onQuickAction, onQuote, onPin }: MessageBubbleProps) {
   const isUser = message.role === 'user'
   const reviewData = !isUser ? extractEntryReview(message.content) : null
+
+  const [showPopover, setShowPopover] = useState(false)
+  const [selectedText, setSelectedText] = useState('')
+  const [popoverPosition, setPopoverPosition] = useState<PopoverPosition>({ x: 0, y: 0, bottom: 0 })
+
+  const bubbleRef = useRef<HTMLDivElement | null>(null)
+  const contentRef = useRef<HTMLDivElement | null>(null)
+  const popoverRef = useRef<HTMLDivElement | null>(null)
+  const selectionTimerRef = useRef<number | null>(null)
+  const longPressTimerRef = useRef<number | null>(null)
+  const longPressTriggeredRef = useRef(false)
+  const lastSelectionRef = useRef('')
+
+  const isTouchDevice = useMemo(() => typeof window !== 'undefined' && 'ontouchstart' in window, [])
+
+  const clearSelectionTimer = useCallback(() => {
+    if (selectionTimerRef.current !== null) {
+      window.clearTimeout(selectionTimerRef.current)
+      selectionTimerRef.current = null
+    }
+  }, [])
+
+  const clearLongPressTimer = useCallback(() => {
+    if (longPressTimerRef.current !== null) {
+      window.clearTimeout(longPressTimerRef.current)
+      longPressTimerRef.current = null
+    }
+  }, [])
+
+  const dismissPopover = useCallback(() => {
+    setShowPopover(false)
+    setSelectedText('')
+    lastSelectionRef.current = ''
+  }, [])
+
+  const calculatePopoverPosition = useCallback((rect: DOMRect): PopoverPosition => {
+    return {
+      x: rect.left + rect.width / 2,
+      y: rect.top,
+      bottom: rect.bottom,
+    }
+  }, [])
+
+  const readSelection = useCallback((): SelectionPayload | null => {
+    const container = contentRef.current
+    if (!container) {
+      return null
+    }
+
+    const selection = window.getSelection()
+    if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
+      return null
+    }
+
+    const text = selection.toString().trim()
+    if (text.length < MIN_SELECTION_LENGTH || text.length > MAX_SELECTION_LENGTH) {
+      return null
+    }
+
+    const range = selection.getRangeAt(0)
+    const startNode = range.startContainer
+    const endNode = range.endContainer
+
+    if (!container.contains(startNode) || !container.contains(endNode)) {
+      return null
+    }
+
+    const rect = range.getBoundingClientRect()
+    if (rect.width === 0 && rect.height === 0) {
+      return null
+    }
+
+    return { text, rect }
+  }, [])
+
+  const handleSelection = useCallback(
+    (extraDelay = 0) => {
+      if (isUser || reviewData) {
+        return
+      }
+
+      clearSelectionTimer()
+      selectionTimerRef.current = window.setTimeout(() => {
+        const payload = readSelection()
+        if (!payload) {
+          dismissPopover()
+          return
+        }
+
+        if (showPopover && lastSelectionRef.current !== payload.text) {
+          setShowPopover(false)
+        }
+
+        lastSelectionRef.current = payload.text
+        setSelectedText(payload.text)
+        setPopoverPosition(calculatePopoverPosition(payload.rect))
+        setShowPopover(true)
+      }, SELECTION_DEBOUNCE_MS + extraDelay)
+    },
+    [calculatePopoverPosition, clearSelectionTimer, dismissPopover, isUser, readSelection, reviewData, showPopover],
+  )
+
+  const handleMouseUp = useCallback(() => {
+    handleSelection()
+  }, [handleSelection])
+
+  const handleTouchStart = useCallback(() => {
+    if (!isTouchDevice || isUser || reviewData) {
+      return
+    }
+
+    longPressTriggeredRef.current = false
+    clearLongPressTimer()
+    longPressTimerRef.current = window.setTimeout(() => {
+      longPressTriggeredRef.current = true
+    }, LONG_PRESS_MS)
+  }, [clearLongPressTimer, isTouchDevice, isUser, reviewData])
+
+  const handleTouchEnd = useCallback(() => {
+    if (!isTouchDevice || isUser || reviewData) {
+      return
+    }
+
+    clearLongPressTimer()
+    if (longPressTriggeredRef.current) {
+      handleSelection(MOBILE_SELECTION_DELAY_MS)
+    }
+  }, [clearLongPressTimer, handleSelection, isTouchDevice, isUser, reviewData])
+
+  const handleTouchCancel = useCallback(() => {
+    clearLongPressTimer()
+    longPressTriggeredRef.current = false
+  }, [clearLongPressTimer])
+
+  const handleQuote = useCallback(() => {
+    if (!selectedText) {
+      return
+    }
+
+    onQuote?.(selectedText)
+    dismissPopover()
+    window.getSelection()?.removeAllRanges()
+  }, [dismissPopover, onQuote, selectedText])
+
+  const handlePin = useCallback(() => {
+    if (!selectedText) {
+      return
+    }
+
+    onPin?.(selectedText, message.id)
+    dismissPopover()
+    window.getSelection()?.removeAllRanges()
+  }, [dismissPopover, message.id, onPin, selectedText])
+
+  useEffect(() => {
+    const handlePointerDown = (event: MouseEvent | TouchEvent) => {
+      if (!showPopover) {
+        return
+      }
+
+      const target = event.target as Node | null
+      if (!target) {
+        return
+      }
+
+      if (popoverRef.current?.contains(target)) {
+        return
+      }
+
+      if (bubbleRef.current?.contains(target)) {
+        return
+      }
+
+      dismissPopover()
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        dismissPopover()
+      }
+    }
+
+    document.addEventListener('mousedown', handlePointerDown)
+    document.addEventListener('touchstart', handlePointerDown)
+    document.addEventListener('keydown', handleKeyDown)
+
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown)
+      document.removeEventListener('touchstart', handlePointerDown)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [dismissPopover, showPopover])
+
+  useEffect(() => {
+    return () => {
+      clearSelectionTimer()
+      clearLongPressTimer()
+    }
+  }, [clearLongPressTimer, clearSelectionTimer])
+
+  const popover =
+    showPopover && !isUser && !reviewData
+      ? createPortal(
+        <SelectionPopover
+          ref={popoverRef}
+          isVisible={showPopover}
+          position={popoverPosition}
+          onQuote={handleQuote}
+          onPin={handlePin}
+          onDismiss={dismissPopover}
+        />,
+        document.body,
+      )
+      : null
 
   return (
     <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
       <div
-        className={`max-w-[85%] rounded-lg px-4 py-3 text-sm leading-relaxed ${
-          isUser ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-100'
-        }`}
+        ref={bubbleRef}
+        className={`max-w-[85%] rounded-lg px-4 py-3 text-sm leading-relaxed ${isUser ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-100'
+          }`}
       >
         {isUser ? <p className="whitespace-pre-wrap">{message.content}</p> : null}
 
@@ -170,11 +410,20 @@ function MessageBubble({ message, onQuickAction }: MessageBubbleProps) {
         ) : null}
 
         {!isUser && !reviewData ? (
-          <div className="prose prose-invert prose-sm max-w-none" dangerouslySetInnerHTML={{ __html: renderMarkdown(message.content) }} />
+          <div
+            ref={contentRef}
+            className="prose prose-invert prose-sm max-w-none"
+            onMouseUp={handleMouseUp}
+            onTouchStart={handleTouchStart}
+            onTouchEnd={handleTouchEnd}
+            onTouchCancel={handleTouchCancel}
+            dangerouslySetInnerHTML={{ __html: renderMarkdown(message.content) }}
+          />
         ) : null}
 
         {!isUser && message.model ? <p className="mt-2 text-xs text-gray-400">{message.model}</p> : null}
       </div>
+      {popover}
     </div>
   )
 }
