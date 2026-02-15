@@ -1,3 +1,3 @@
-# Nexus
+# Azimuth
 
-Task 1 scaffold for the Nexus project.
+Task 1 scaffold for the Azimuth project.

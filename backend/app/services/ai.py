@@ -16,7 +16,7 @@ async def stream_chat(messages: list[dict[str, str]], model: str):
         stream=True,
         extra_headers={
             "HTTP-Referer": "http://localhost:3000",
-            "X-Title": "Nexus Assistant",
+            "X-Title": "Azimuth Assistant",
         },
     )
     async for chunk in stream:
@@ -40,7 +40,7 @@ async def generate_title(first_user_message: str, model: str) -> str:
         ],
         extra_headers={
             "HTTP-Referer": "http://localhost:3000",
-            "X-Title": "Nexus Assistant",
+            "X-Title": "Azimuth Assistant",
         },
     )
     raw = (response.choices[0].message.content or "").strip()

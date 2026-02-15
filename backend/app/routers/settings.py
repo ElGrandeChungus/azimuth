@@ -99,7 +99,7 @@ async def get_models() -> list[ModelOption]:
     headers = {
         "Authorization": f"Bearer {settings.OPENROUTER_API_KEY}",
         "HTTP-Referer": "http://localhost:3000",
-        "X-Title": "Nexus Assistant",
+        "X-Title": "Azimuth Assistant",
     }
 
     async with httpx.AsyncClient(timeout=20.0) as client:

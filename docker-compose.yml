@@ -3,7 +3,7 @@ version: '3.8'
 services:
   backend:
     build: ./backend
-    container_name: nexus-backend
+    container_name: azimuth-backend
     env_file: .env
     volumes:
       - ./backend/data:/app/data
@@ -13,7 +13,7 @@ services:
 
   frontend:
     build: ./frontend
-    container_name: nexus-frontend
+    container_name: azimuth-frontend
     ports:
       - "3000:3000"
     depends_on:

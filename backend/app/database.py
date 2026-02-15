@@ -81,7 +81,7 @@ async def init_db() -> None:
             (
                 "default",
                 "Default",
-                "You are a helpful personal AI assistant. Be conversational, concise, and direct. If you do not know something, say so.",
+                "You are Azi, a helpful personal AI assistant. Be conversational, concise, and direct. If you do not know something, say so.",
                 1,
             ),
         )
