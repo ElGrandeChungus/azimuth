@@ -12,22 +12,35 @@ type ConversationDetailResponse = {
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_URL}${path}`, {
     headers: {
+      Accept: 'application/json',
       'Content-Type': 'application/json',
       ...(init?.headers ?? {}),
     },
     ...init,
   })
 
+  const bodyText = await response.text()
+
   if (!response.ok) {
-    const text = await response.text()
-    throw new Error(text || `Request failed with status ${response.status}`)
+    throw new Error(bodyText || `Request failed with status ${response.status}`)
   }
 
   if (response.status === 204) {
     return undefined as T
   }
 
-  return (await response.json()) as T
+  const contentType = response.headers.get('content-type') ?? ''
+  if (!contentType.toLowerCase().includes('application/json')) {
+    const preview = bodyText.slice(0, 120)
+    throw new Error(`Expected JSON response but received ${contentType || 'unknown content-type'}: ${preview}`)
+  }
+
+  try {
+    return JSON.parse(bodyText) as T
+  } catch {
+    const preview = bodyText.slice(0, 120)
+    throw new Error(`Invalid JSON response: ${preview}`)
+  }
 }
 
 export async function getConversations(): Promise<Conversation[]> {

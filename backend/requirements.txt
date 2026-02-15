@@ -2,5 +2,6 @@ fastapi==0.115.6
 uvicorn[standard]==0.34.0
 aiosqlite==0.20.0
 openai==1.58.1
-pydantic==2.10.3
+pydantic==2.11.7
 python-dotenv==1.0.1
+mcp==1.26.0

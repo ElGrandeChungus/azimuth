@@ -14,6 +14,8 @@ class Settings:
     OPENROUTER_BASE_URL: str
     DATABASE_PATH: str
     DEFAULT_MODEL: str
+    PRODUCER_MODEL: str
+    LOREMAP_MCP_URL: str
     CORS_ORIGINS: list[str]
 
 
@@ -50,6 +52,8 @@ def get_settings() -> Settings:
         OPENROUTER_BASE_URL=os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1").strip(),
         DATABASE_PATH=os.getenv("DATABASE_PATH", "data/azimuth.db").strip(),
         DEFAULT_MODEL=os.getenv("DEFAULT_MODEL", "anthropic/claude-sonnet-4.5").strip(),
+        PRODUCER_MODEL=os.getenv("PRODUCER_MODEL", "google/gemini-flash-2.0").strip(),
+        LOREMAP_MCP_URL=os.getenv("LOREMAP_MCP_URL", "http://loremap:8001/mcp").strip(),
         CORS_ORIGINS=_parse_cors_origins(os.getenv("CORS_ORIGINS")),
     )
 

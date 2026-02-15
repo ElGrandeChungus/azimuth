@@ -3,6 +3,11 @@ services:
     build: ./backend
     container_name: azimuth-backend
     env_file: .env
+    environment:
+      - LOREMAP_MCP_URL=http://loremap:8001/mcp
+      - PRODUCER_MODEL=google/gemini-flash-2.0
+    depends_on:
+      - loremap
     volumes:
       - ./backend/data:/app/data
     ports:
@@ -17,3 +22,14 @@ services:
     depends_on:
       - backend
     restart: unless-stopped
+
+  loremap:
+    build: ./loremap
+    container_name: azimuth-loremap
+    volumes:
+      - ./loremap/data:/app/data
+    ports:
+      - "127.0.0.1:8001:8001"
+    restart: unless-stopped
+    environment:
+      - DATABASE_PATH=data/lore.db
