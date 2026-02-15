@@ -1,4 +1,7 @@
+import { useState } from 'react'
+
 import ChatView from './components/ChatView'
+import SettingsPanel from './components/SettingsPanel'
 import Sidebar from './components/Sidebar'
 import { useChat } from './hooks/useChat'
 
@@ -13,24 +16,73 @@ function App() {
     isLoadingMessages,
     selectConversation,
     createConversation,
+    deleteConversation,
+    updateConversationModel,
     sendMessage,
     stopStreaming,
   } = useChat()
 
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false)
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false)
+
   return (
     <div className="h-screen bg-gray-900 text-gray-100">
-      <div className="flex h-full flex-col md:flex-row">
-        <div className="h-64 md:h-full md:w-80 md:flex-shrink-0">
+      <div className="flex h-full">
+        <div className="hidden h-full w-80 flex-shrink-0 md:block">
           <Sidebar
             conversations={conversations}
             activeConversationId={activeConversation?.id ?? null}
             isLoading={isLoadingConversations}
-            onSelectConversation={selectConversation}
+            onSelectConversation={(id) => {
+              selectConversation(id)
+              setIsMobileSidebarOpen(false)
+            }}
             onNewConversation={() => {
               void createConversation()
+              setIsMobileSidebarOpen(false)
+            }}
+            onDeleteConversation={(id) => {
+              void deleteConversation(id)
+            }}
+            onOpenSettings={() => {
+              setIsSettingsOpen(true)
+              setIsMobileSidebarOpen(false)
             }}
           />
         </div>
+
+        {isMobileSidebarOpen ? (
+          <div className="fixed inset-0 z-30 md:hidden">
+            <button
+              type="button"
+              onClick={() => setIsMobileSidebarOpen(false)}
+              className="absolute inset-0 bg-black/60"
+              aria-label="Close sidebar"
+            />
+            <div className="relative h-full w-80 max-w-[85vw]">
+              <Sidebar
+                conversations={conversations}
+                activeConversationId={activeConversation?.id ?? null}
+                isLoading={isLoadingConversations}
+                onSelectConversation={(id) => {
+                  selectConversation(id)
+                  setIsMobileSidebarOpen(false)
+                }}
+                onNewConversation={() => {
+                  void createConversation()
+                  setIsMobileSidebarOpen(false)
+                }}
+                onDeleteConversation={(id) => {
+                  void deleteConversation(id)
+                }}
+                onOpenSettings={() => {
+                  setIsSettingsOpen(true)
+                  setIsMobileSidebarOpen(false)
+                }}
+              />
+            </div>
+          </div>
+        ) : null}
 
         <main className="min-h-0 flex-1 bg-gray-950">
           {error ? (
@@ -43,9 +95,18 @@ function App() {
             isLoadingMessages={isLoadingMessages}
             onSendMessage={sendMessage}
             onStopStreaming={stopStreaming}
+            onChangeModel={(model) => {
+              if (!activeConversation) {
+                return
+              }
+              void updateConversationModel(activeConversation.id, model)
+            }}
+            onOpenSidebar={() => setIsMobileSidebarOpen(true)}
           />
         </main>
       </div>
+
+      <SettingsPanel isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
     </div>
   )
 }

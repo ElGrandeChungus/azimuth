@@ -125,6 +125,7 @@ async def get_models() -> list[ModelOption]:
         name = str(model_data.get("name") or model_data.get("canonical_name") or model_id)
         options.append(ModelOption(id=model_id, name=name))
 
+    options.sort(key=lambda x: x.name.lower())
     _models_cache = options
     _models_cache_expires_at = now + MODELS_CACHE_SECONDS
     return options

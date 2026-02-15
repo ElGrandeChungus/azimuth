@@ -1,6 +1,7 @@
 import type { Conversation, Message } from '../types'
 import MessageInput from './MessageInput'
 import MessageList from './MessageList'
+import ModelSelector from './ModelSelector'
 
 interface ChatViewProps {
   activeConversation: Conversation | null
@@ -9,6 +10,8 @@ interface ChatViewProps {
   isLoadingMessages: boolean
   onSendMessage: (content: string) => Promise<void>
   onStopStreaming: () => void
+  onChangeModel: (model: string) => void
+  onOpenSidebar: () => void
 }
 
 function ChatView({
@@ -18,19 +21,42 @@ function ChatView({
   isLoadingMessages,
   onSendMessage,
   onStopStreaming,
+  onChangeModel,
+  onOpenSidebar,
 }: ChatViewProps) {
   if (!activeConversation) {
     return (
-      <div className="flex h-full items-center justify-center px-6 text-center text-gray-400">
-        Start a new conversation
+      <div className="flex h-full flex-col">
+        <div className="flex items-center justify-between border-b border-gray-800 px-4 py-3 md:hidden">
+          <button
+            type="button"
+            onClick={onOpenSidebar}
+            className="rounded border border-gray-700 px-3 py-1 text-sm text-gray-200"
+          >
+            Menu
+          </button>
+        </div>
+        <div className="flex h-full items-center justify-center px-6 text-center text-gray-400">
+          Start a new conversation
+        </div>
       </div>
     )
   }
 
   return (
     <div className="flex h-full flex-col">
-      <div className="border-b border-gray-800 px-4 py-3">
-        <h2 className="text-sm font-semibold text-gray-100">{activeConversation.title}</h2>
+      <div className="flex items-center justify-between gap-2 border-b border-gray-800 px-4 py-3">
+        <div className="flex min-w-0 items-center gap-2">
+          <button
+            type="button"
+            onClick={onOpenSidebar}
+            className="rounded border border-gray-700 px-3 py-1 text-sm text-gray-200 md:hidden"
+          >
+            Menu
+          </button>
+          <h2 className="truncate text-sm font-semibold text-gray-100">{activeConversation.title}</h2>
+        </div>
+        <ModelSelector value={activeConversation.model ?? ''} onChange={onChangeModel} disabled={isStreaming} />
       </div>
 
       {isLoadingMessages ? (

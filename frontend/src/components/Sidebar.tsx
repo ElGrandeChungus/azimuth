@@ -6,6 +6,8 @@ interface SidebarProps {
   isLoading: boolean
   onSelectConversation: (conversationId: string) => void
   onNewConversation: () => void
+  onDeleteConversation: (conversationId: string) => void
+  onOpenSettings: () => void
 }
 
 function formatRelativeTime(timestamp: string): string {
@@ -35,16 +37,25 @@ function Sidebar({
   isLoading,
   onSelectConversation,
   onNewConversation,
+  onDeleteConversation,
+  onOpenSettings,
 }: SidebarProps) {
   return (
-    <aside className="flex h-full w-full flex-col border-r border-gray-800 bg-gray-900 md:w-80">
-      <div className="border-b border-gray-800 p-4">
+    <aside className="flex h-full w-full flex-col border-r border-gray-800 bg-gray-900">
+      <div className="space-y-2 border-b border-gray-800 p-4">
         <button
           type="button"
           onClick={onNewConversation}
           className="w-full rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-500"
         >
           New Chat
+        </button>
+        <button
+          type="button"
+          onClick={onOpenSettings}
+          className="w-full rounded-md border border-gray-700 px-4 py-2 text-sm text-gray-200 transition hover:bg-gray-800"
+        >
+          Settings
         </button>
       </div>
 
@@ -59,19 +70,28 @@ function Sidebar({
               const isActive = conversation.id === activeConversationId
 
               return (
-                <li key={conversation.id}>
-                  <button
-                    type="button"
-                    onClick={() => onSelectConversation(conversation.id)}
-                    className={`w-full rounded-md px-3 py-2 text-left transition ${
-                      isActive
-                        ? 'bg-gray-800 text-gray-100'
-                        : 'text-gray-300 hover:bg-gray-800/60 hover:text-gray-100'
+                <li key={conversation.id} className="group">
+                  <div
+                    className={`flex items-center gap-1 rounded-md transition ${
+                      isActive ? 'bg-gray-800 text-gray-100' : 'text-gray-300 hover:bg-gray-800/60 hover:text-gray-100'
                     }`}
                   >
-                    <p className="truncate text-sm font-medium">{conversation.title}</p>
-                    <p className="mt-1 text-xs text-gray-400">{formatRelativeTime(conversation.updated_at)}</p>
-                  </button>
+                    <button
+                      type="button"
+                      onClick={() => onSelectConversation(conversation.id)}
+                      className="flex-1 px-3 py-2 text-left"
+                    >
+                      <p className="truncate text-sm font-medium">{conversation.title}</p>
+                      <p className="mt-1 text-xs text-gray-400">{formatRelativeTime(conversation.updated_at)}</p>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onDeleteConversation(conversation.id)}
+                      className="mr-2 rounded px-2 py-1 text-xs text-red-300 opacity-100 transition hover:bg-red-950 md:opacity-0 md:group-hover:opacity-100"
+                    >
+                      Delete
+                    </button>
+                  </div>
                 </li>
               )
             })}

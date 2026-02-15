@@ -5,9 +5,10 @@ import {
   deleteConversation as deleteConversationRequest,
   getConversation,
   getConversations,
+  updateConversation,
 } from '../api/client'
-import { useStream } from './useStream'
 import type { Conversation, Message } from '../types'
+import { useStream } from './useStream'
 
 const TEMP_ASSISTANT_ID = 'temp-assistant-stream'
 
@@ -101,27 +102,39 @@ export function useChat() {
     }
   }, [])
 
-  const deleteConversation = useCallback(async (conversationId: string) => {
-    try {
-      await deleteConversationRequest(conversationId)
-      setConversations((current) => current.filter((conversation) => conversation.id !== conversationId))
-
-      if (activeConversationId === conversationId) {
-        setActiveConversationId((current) => {
-          if (current !== conversationId) {
-            return current
+  const deleteConversation = useCallback(
+    async (conversationId: string) => {
+      try {
+        await deleteConversationRequest(conversationId)
+        setConversations((current) => {
+          const filtered = current.filter((conversation) => conversation.id !== conversationId)
+          if (activeConversationId === conversationId) {
+            setActiveConversationId(filtered[0]?.id ?? null)
+            setMessages([])
           }
-          const nextConversation = conversations.find((conversation) => conversation.id !== conversationId)
-          return nextConversation?.id ?? null
+          return filtered
         })
-        setMessages([])
+        setError(null)
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Failed to delete conversation'
+        setError(message)
       }
+    },
+    [activeConversationId],
+  )
+
+  const updateConversationModel = useCallback(async (conversationId: string, model: string) => {
+    try {
+      const updated = await updateConversation(conversationId, { model })
+      setConversations((current) =>
+        current.map((conversation) => (conversation.id === conversationId ? updated : conversation)),
+      )
       setError(null)
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to delete conversation'
+      const message = err instanceof Error ? err.message : 'Failed to update model'
       setError(message)
     }
-  }, [activeConversationId, conversations])
+  }, [])
 
   const sendMessage = useCallback(
     async (content: string) => {
@@ -215,6 +228,7 @@ export function useChat() {
     selectConversation,
     createConversation,
     deleteConversation,
+    updateConversationModel,
     sendMessage,
     stopStreaming: stop,
     refresh,

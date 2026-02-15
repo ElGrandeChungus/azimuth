@@ -117,7 +117,7 @@ export async function createSystemPrompt(name: string, content: string): Promise
 
 export async function updateSystemPrompt(
   id: string,
-  updates: Partial<SystemPrompt>,
+  updates: Partial<SystemPrompt> & { is_default?: boolean },
 ): Promise<SystemPrompt> {
   return apiFetch<SystemPrompt>(`/settings/prompts/${id}`, {
     method: 'PATCH',
