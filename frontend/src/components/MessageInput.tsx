@@ -130,8 +130,8 @@ function MessageInput({ isStreaming, onSend, onStop, quoteInsert = null }: Messa
       return
     }
 
-    const start = textarea.selectionStart ?? value.length
-    const end = textarea.selectionEnd ?? value.length
+    const start = textarea.selectionStart ?? 0
+    const end = textarea.selectionEnd ?? 0
 
     setValue((current) => {
       const safeStart = Math.max(0, Math.min(start, current.length))
@@ -158,7 +158,7 @@ function MessageInput({ isStreaming, onSend, onStop, quoteInsert = null }: Messa
 
       return next
     })
-  }, [value.length])
+  }, [])
 
   useEffect(() => {
     try {
@@ -181,11 +181,18 @@ function MessageInput({ isStreaming, onSend, onStop, quoteInsert = null }: Messa
     resizeTextarea()
   }, [value, resizeTextarea])
 
+  const lastProcessedQuoteIdRef = useRef(-1)
+
   useEffect(() => {
     if (!quoteInsert || !quoteInsert.text.trim()) {
       return
     }
 
+    if (quoteInsert.id <= lastProcessedQuoteIdRef.current) {
+      return
+    }
+
+    lastProcessedQuoteIdRef.current = quoteInsert.id
     insertQuoteAtCursor(quoteInsert.text)
   }, [insertQuoteAtCursor, quoteInsert])
 

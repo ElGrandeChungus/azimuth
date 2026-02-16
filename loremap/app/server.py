@@ -8,6 +8,8 @@ from typing import Any
 from fastmcp import FastMCP
 
 from app.database import get_db, init_db_sync
+from app.foundry_formatter import FoundryFormatter, get_foundry_schema_info
+from app.foundry_schemas import slug_to_foundry_id
 from app.schemas import ENTRY_SCHEMAS, default_metadata_for_type, validate_entry_taxonomy
 from app.search import find_related_payload, search_entries_payload, validate_references_payload
 
@@ -622,6 +624,71 @@ async def get_context_package(
         user_input=user_input,
         existing_slug=existing_slug,
     )
+
+
+@mcp.tool()
+async def export_to_foundry(
+    slug: str,
+    include_related: bool = False,
+    id_overrides: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    """Export a lore entry as Foundry VTT-importable JSON.
+
+    Args:
+        slug: The lore entry slug to export.
+        include_related: If true, also exports all referenced entries.
+        id_overrides: Optional map of slug → Foundry ID for entries
+                      that already exist in the Foundry world.
+
+    Returns:
+        Dictionary with entries (list of exported JSON objects) and
+        manifest (metadata about the export batch).
+    """
+    formatter = FoundryFormatter(id_overrides=id_overrides)
+    if include_related:
+        return await formatter.export_with_related(slug)
+
+    result = await formatter.export_entry(slug)
+    return {
+        'entries': [result],
+        'manifest': formatter._build_manifest(
+            {slug: (id_overrides or {}).get(slug, slug_to_foundry_id(slug))}
+        ),
+    }
+
+
+@mcp.tool()
+async def export_batch_to_foundry(
+    slugs: list[str],
+    id_overrides: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    """Export multiple lore entries as Foundry VTT-importable JSON.
+
+    Args:
+        slugs: List of lore entry slugs to export.
+        id_overrides: Optional map of slug → Foundry ID for entries
+                      that already exist in the Foundry world.
+
+    Returns:
+        Dictionary with entries (list of exported JSON objects) and
+        manifest (metadata about the export batch).
+    """
+    formatter = FoundryFormatter(id_overrides=id_overrides)
+    return await formatter.export_batch(slugs)
+
+
+@mcp.tool()
+async def get_foundry_schema(entry_type: str) -> dict[str, Any]:
+    """Return annotated Foundry JSON template and field mapping guidance.
+
+    Args:
+        entry_type: One of 'npc', 'location', 'faction', 'event', 'culture'.
+
+    Returns:
+        Dictionary with schema (Foundry structure overview),
+        field_mapping (lore field → Foundry field), and notes.
+    """
+    return get_foundry_schema_info(entry_type)
 
 
 @mcp.resource('lore://schemas/{type}')
